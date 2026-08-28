@@ -1,0 +1,16 @@
+{
+  "name": "logi-forge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "npm run test:web && npm run test:native",
+    "test:web": "node --test tests/*.test.js",
+    "test:native": "cargo test --manifest-path native/Cargo.toml --workspace",
+    "lint:native": "cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -D warnings"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

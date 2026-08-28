@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Logi Forge</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar" aria-label="Device navigation">
+        <div class="brand">
+          <div class="brand-mark">LF</div>
+          <div>
+            <div class="brand-name">Logi Forge</div>
+            <div class="brand-subtitle">Local device control</div>
+          </div>
+        </div>
+
+        <div id="agentStatus" class="agent-status" data-status="connecting">
+          <div>
+            <span class="status-dot"></span>
+            <span id="agentLabel">Connecting agent</span>
+          </div>
+          <span id="protocol">v29</span>
+        </div>
+
+        <nav id="deviceList" class="device-list"></nav>
+
+        <div class="sidebar-footer">
+          <button id="syncAssets" class="ghost-button" type="button">Sync assets</button>
+          <button id="reloadConfig" class="ghost-button" type="button">Reload config</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1 id="deviceTitle">MX Master 3S</h1>
+            <p id="deviceRoute">Bolt receiver - slot 1</p>
+          </div>
+          <div class="topbar-actions">
+            <label class="toggle">
+              <input id="managedToggle" type="checkbox" checked />
+              <span>Managed</span>
+            </label>
+            <button id="pairDevice" class="primary-button" type="button">Pair device</button>
+          </div>
+        </header>
+
+        <nav id="tabs" class="tabs" aria-label="Feature tabs"></nav>
+
+        <section class="content-grid">
+          <article class="primary-panel">
+            <div id="panelMount">
+              <div class="empty-state"><strong>Connecting to agent</strong><span>Loading device inventory...</span></div>
+            </div>
+          </article>
+
+          <aside class="inspector">
+            <section class="info-block">
+              <h2>Runtime</h2>
+              <dl id="runtimeFacts"></dl>
+            </section>
+
+            <section class="info-block">
+              <h2>Recent apps</h2>
+              <div id="appProfiles" class="profile-list"></div>
+            </section>
+
+            <section class="info-block">
+              <div class="block-heading">
+                <h2>Config preview</h2>
+                <button id="copyConfig" class="icon-button" type="button" title="Copy config">Copy</button>
+              </div>
+              <pre id="configPreview"></pre>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

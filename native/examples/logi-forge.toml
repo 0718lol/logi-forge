@@ -1,0 +1,65 @@
+schema_version = 1
+selected_device = "unit:6be9d300"
+
+[app_settings]
+show_in_menu_bar = true
+capture_mouse_events = true
+device_view_mode = "grid"
+
+[devices."unit:6be9d300"]
+custom_name = "MX Master 3S"
+enabled = true
+dpi = 1600
+dpi_presets = [800, 1600, 2400, 3200]
+invert_scroll = false
+scroll_resolution = "high"
+
+[devices."unit:6be9d300".bindings]
+Back = "BrowserBack"
+Forward = "BrowserForward"
+MiddleClick = { HoldShortcut = "Ctrl+Space" }
+DpiToggle = "None"
+
+[devices."unit:6be9d300".profiles.editor]
+app_id = "/usr/bin/code"
+
+[devices."unit:6be9d300".profiles.editor.bindings]
+Back = "Copy"
+Forward = "Paste"
+
+[devices."unit:6be9d300".action_ring.default.slots]
+Top = { action = "Copy", label = "Top" }
+TopRight = { action = "Paste", label = "TopRight" }
+Right = { action = "BrowserForward", label = "Right" }
+BottomRight = { action = "VolumeUp", label = "BottomRight" }
+Bottom = { action = "ShowDesktop", label = "Bottom" }
+BottomLeft = { action = "VolumeDown", label = "BottomLeft" }
+Left = { action = "BrowserBack", label = "Left" }
+TopLeft = { action = "MissionControl", label = "TopLeft" }
+
+[devices."unit:6be9d300".keyboard]
+fn_lock = false
+
+[devices."unit:6be9d300".keyboard.lighting]
+color = "18a06f"
+brightness = 72
+
+[devices."unit:6be9d300".keyboard.bindings]
+F1 = "MissionControl"
+F4 = "ShowDesktop"
+
+[devices."unit:6be9d300".camera]
+profile = "Video call"
+zoom = 115
+focus_auto = true
+exposure_auto = true
+brightness = 55
+contrast = 48
+saturation = 52
+white_balance = 4600
+
+[devices."unit:6be9d300".light]
+power = true
+brightness = 64
+temperature = 4200
+auto_power = false

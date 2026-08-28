@@ -1,0 +1,3 @@
+name = "Logi Forge"
+start = "node server.js"
+health = "/health"

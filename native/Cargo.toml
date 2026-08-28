@@ -1,0 +1,22 @@
+[workspace]
+members = [
+  "crates/logi-forge-core",
+  "crates/logi-forge-hidpp",
+  "crates/logi-forge-linux",
+  "crates/logi-forge-cli",
+  "crates/logi-forge-agent",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"

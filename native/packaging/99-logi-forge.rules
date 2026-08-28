@@ -1,0 +1,2 @@
+# Grant the active desktop session access to Logitech hidraw nodes.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", TAG+="uaccess"

@@ -1,0 +1,12 @@
+[package]
+name = "logi-forge-hidpp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+logi-forge-core = { path = "../logi-forge-core" }
+
+[lints]
+workspace = true

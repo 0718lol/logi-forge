@@ -1,0 +1,18 @@
+[package]
+name = "logi-forge-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "logi-forge"
+path = "src/main.rs"
+
+[dependencies]
+logi-forge-core = { path = "../logi-forge-core" }
+logi-forge-hidpp = { path = "../logi-forge-hidpp" }
+logi-forge-linux = { path = "../logi-forge-linux" }
+
+[lints]
+workspace = true
