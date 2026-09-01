@@ -37,6 +37,7 @@ Implemented first vertical slice:
 - Capability, online-state, value-range, and revision validation.
 - Server-generated TOML preview and live SSE inventory updates.
 - Clear boundary for replacing mock writes with a native agent.
+- Structured diagnostics for native status, device nodes, and host permissions.
 
 Native M2 implementation:
 
@@ -77,6 +78,10 @@ PORT=3000 npm start
 npm test
 npm run lint:native
 ```
+
+The hosted build exposes `GET /api/v1/diagnostics` for hardware-free checks of
+the Native Agent, Linux `hidraw`/`input`/`uinput` nodes, and configuration apply
+status. The UI exposes the same data in the Runtime inspector.
 
 ## Implementation Direction
 

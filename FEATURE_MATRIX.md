@@ -8,6 +8,7 @@ Baseline: AprilNEA/OpenLogi `b32ae0872252a20353a2b8b51f1ef74b065c78f6`.
 | --- | --- | --- |
 | Device inventory | Receiver, direct, raw HID, camera inventories | Mocked mouse, keyboard, camera, light |
 | Agent status | Protocol version, inventory health, permissions | Live HTTP/SSE status, revision, config reload |
+| Diagnostics | Native status, device nodes, permissions, apply state | Structured API and Runtime inspector |
 | Device detail tabs | Capability-gated tabs | Implemented in frontend state |
 | Mouse bindings | Button remap, gesture, long press, hold shortcut | UI state and TOML preview |
 | Actions Ring | Eight-slot overlay, per-app layouts | Eight-slot editor mock |

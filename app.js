@@ -2,6 +2,7 @@ let snapshot = null;
 let devices = [];
 let actions = [];
 let recentApps = [];
+let diagnostics = null;
 let currentIndex = 0;
 let currentTab = "Buttons";
 let toastTimer = null;
@@ -435,6 +436,8 @@ function readInput(input) {
 function renderInspector(device) {
   const native = snapshot.nativeAgent || {};
   $("#runtimeFacts").innerHTML = `
+    <dt>Mode</dt><dd>${escapeHtml(snapshot.runtime?.mode || "demo")}</dd>
+    <dt>Native ready</dt><dd>${snapshot.runtime?.nativeAvailable ? "yes" : "no"}</dd>
     <dt>Protocol</dt><dd>${snapshot.protocolVersion}</dd>
     <dt>Upstream baseline</dt><dd>${snapshot.upstreamBaselineProtocol}</dd>
     <dt>Revision</dt><dd>${snapshot.revision}</dd>
@@ -451,7 +454,40 @@ function renderInspector(device) {
     .map((app, index) => `<div class="profile-pill"><span>${escapeHtml(app.name)}</span><strong>${index === 0 ? "active" : "seen"}</strong></div>`)
     .join("");
 
+  renderDiagnostics();
+
   $("#configPreview").textContent = snapshot.configPreviews[device.key];
+}
+
+function renderDiagnostics() {
+  const target = $("#diagnosticsFacts");
+  if (!target) return;
+  if (!diagnostics) {
+    target.innerHTML = "<dd>loading...</dd>";
+    return;
+  }
+  const nodes = diagnostics.host?.nodes || {};
+  const nodeStatus = (node) => node?.status || "unavailable";
+  const uinputStatus = (nodes.uinput || []).map(nodeStatus).join(" / ");
+  target.innerHTML = `
+    <dt>Native</dt><dd>${escapeHtml(diagnostics.nativeAgent?.status || "unavailable")}</dd>
+    <dt>Inventory</dt><dd>${escapeHtml(diagnostics.nativeAgent?.inventoryStatus || "unavailable")} (${diagnostics.nativeAgent?.deviceCount ?? 0})</dd>
+    <dt>hidraw</dt><dd>${escapeHtml(nodeStatus(nodes.hidraw))} (${nodes.hidraw?.count ?? 0})</dd>
+    <dt>Input events</dt><dd>${escapeHtml(nodeStatus(nodes.input))} (${nodes.input?.count ?? 0})</dd>
+    <dt>uinput</dt><dd>${escapeHtml(uinputStatus || "unavailable")}</dd>
+    <dt>Config</dt><dd>${escapeHtml(diagnostics.nativeAgent?.configStatus || "unavailable")}</dd>
+    <dt>Apply</dt><dd>${escapeHtml(diagnostics.nativeAgent?.applyStatus || "unavailable")}</dd>
+  `;
+}
+
+async function loadDiagnostics() {
+  try {
+    diagnostics = await api("/api/v1/diagnostics");
+    renderDiagnostics();
+  } catch {
+    diagnostics = null;
+    renderDiagnostics();
+  }
 }
 
 function showToast(message, isError = false) {
@@ -473,6 +509,7 @@ $("#pairDevice").addEventListener("click", () => {
 
 $("#syncAssets").addEventListener("click", () => runCommand("sync-assets", {}, "Asset catalog is current"));
 $("#reloadConfig").addEventListener("click", () => runCommand("reload-config", {}, "Config reloaded"));
+$("#runDiagnostics").addEventListener("click", () => loadDiagnostics());
 
 $("#copyConfig").addEventListener("click", async () => {
   const text = $("#configPreview").textContent;
@@ -496,3 +533,4 @@ events.addEventListener("snapshot", (event) => {
 events.onerror = () => setAgentStatus("offline");
 
 loadSnapshot();
+loadDiagnostics();

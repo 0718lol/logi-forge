@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { accessSync, constants, createReadStream, existsSync, readdirSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -21,6 +21,10 @@ function currentSnapshot() {
   const native = nativeAgent.view();
   return {
     ...base,
+    runtime: {
+      mode: native.status === "online" ? "native+demo" : "demo",
+      nativeAvailable: native.status === "online",
+    },
     transport: native.status === "online" ? "http+sse+native-unix" : base.transport,
     nativeAgent: native,
   };
@@ -71,6 +75,57 @@ function sendSnapshot(snapshot) {
   for (const client of clients) client.write(event);
 }
 
+function inspectDirectory(path, matcher) {
+  if (!existsSync(path)) return { status: "missing", count: 0, nodes: [] };
+  try {
+    const nodes = readdirSync(path).filter(matcher).sort();
+    return { status: nodes.length ? "detected" : "empty", count: nodes.length, nodes };
+  } catch (error) {
+    return { status: "denied", count: 0, nodes: [], error: error.code || "READ_FAILED" };
+  }
+}
+
+function inspectPath(path) {
+  if (!existsSync(path)) return { status: "missing", path };
+  try {
+    accessSync(path, constants.R_OK | constants.W_OK);
+    return { status: "ready", path };
+  } catch (error) {
+    return { status: "denied", path, error: error.code || "ACCESS_FAILED" };
+  }
+}
+
+function diagnostics() {
+  const native = nativeAgent.view();
+  const hidraw = inspectDirectory("/dev", (name) => name.startsWith("hidraw"));
+  const input = inspectDirectory("/dev/input", (name) => name.startsWith("event"));
+  return {
+    generatedAt: new Date().toISOString(),
+    runtime: {
+      mode: native.status === "online" ? "native+demo" : "demo",
+      nativeAvailable: native.status === "online",
+    },
+    host: {
+      platform: process.platform,
+      arch: process.arch,
+      nodes: {
+        hidraw,
+        input,
+        uinput: ["/dev/uinput", "/dev/input/uinput"].map(inspectPath),
+      },
+    },
+    nativeAgent: {
+      status: native.status,
+      protocolVersion: native.protocolVersion ?? null,
+      inventoryStatus: native.inventoryStatus ?? "unavailable",
+      deviceCount: native.devices?.length ?? 0,
+      configStatus: native.config?.status ?? "unavailable",
+      applyStatus: native.apply?.status ?? "unavailable",
+      error: native.error ?? null,
+    },
+  };
+}
+
 agent.on("snapshot", () => sendSnapshot(currentSnapshot()));
 
 async function serveStatic(pathname, response) {
@@ -100,6 +155,7 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/health") {
       json(response, 200, {
         status: "ok",
+        ready: nativeAgent.view().status === "online",
         protocolVersion: currentSnapshot().protocolVersion,
         nativeAgent: nativeAgent.view().status,
       });
@@ -107,6 +163,10 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/v1/snapshot") {
       json(response, 200, currentSnapshot());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/diagnostics") {
+      json(response, 200, diagnostics());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/events") {

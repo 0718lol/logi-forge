@@ -12,11 +12,14 @@ export class NativeAgentBridge {
     this.status = process.env.LOGI_FORGE_NATIVE_AGENT === "off" ? "disabled" : "starting";
     this.snapshot = null;
     this.child = null;
-    this.timer = null;
+    this.pollTimer = null;
+    this.restartTimer = null;
+    this.stopped = false;
   }
 
   start() {
-    if (this.status === "disabled") return;
+    if (this.status === "disabled" || this.stopped || this.child) return;
+    this.status = "starting";
     mkdirSync(join(this.root, ".runtime"), { recursive: true });
     if (!existsSync(this.configPath)) {
       copyFileSync(join(this.root, "native", "examples", "logi-forge.toml"), this.configPath);
@@ -38,12 +41,32 @@ export class NativeAgentBridge {
       stdio: ["ignore", "ignore", "pipe"],
     });
     this.child.stderr.on("data", (chunk) => process.stderr.write(`[native-agent] ${chunk}`));
-    this.child.once("error", (error) => this.markOffline(error.message));
+    this.child.once("error", (error) => {
+      this.child = null;
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = null;
+      this.markOffline(error.message);
+      this.scheduleRestart();
+    });
     this.child.once("exit", (code, signal) => {
-      if (this.status !== "stopped") this.markOffline(`exited code=${code} signal=${signal}`);
+      this.child = null;
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = null;
+      if (this.status !== "stopped") {
+        this.markOffline(`exited code=${code} signal=${signal}`);
+        this.scheduleRestart();
+      }
     });
     this.poll();
-    this.timer = setInterval(() => this.poll(), 1000);
+    this.pollTimer = setInterval(() => this.poll(), 1000);
+  }
+
+  scheduleRestart() {
+    if (this.stopped || this.status === "disabled" || this.restartTimer) return;
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      this.start();
+    }, 1000);
   }
 
   async poll() {
@@ -123,8 +146,13 @@ export class NativeAgentBridge {
   }
 
   stop() {
+    this.stopped = true;
     this.status = "stopped";
-    if (this.timer) clearInterval(this.timer);
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.pollTimer = null;
+    this.restartTimer = null;
     if (this.child && this.child.exitCode === null) this.child.kill("SIGTERM");
+    this.child = null;
   }
 }

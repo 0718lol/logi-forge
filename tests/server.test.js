@@ -71,6 +71,15 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
   const before = await waitForNative(base);
   assert.ok(before.nativeAgent);
   assert.equal(before.nativeAgent.protocolVersion, 1);
+  assert.equal(before.runtime.mode, "native+demo");
+  assert.equal((await (await fetch(`${base}/health`)).json()).ready, true);
+
+  const diagnostics = await (await fetch(`${base}/api/v1/diagnostics`)).json();
+  assert.equal(diagnostics.runtime.mode, "native+demo");
+  assert.equal(diagnostics.nativeAgent.status, "online");
+  assert.equal(typeof diagnostics.host.platform, "string");
+  assert.ok(diagnostics.host.nodes.hidraw.status);
+  assert.ok(Array.isArray(diagnostics.host.nodes.uinput));
   const write = await fetch(`${base}/api/v1/devices/${encodeURIComponent("unit:6be9d300")}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -98,4 +107,25 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
   });
   assert.equal(invalid.status, 400);
   assert.equal((await invalid.json()).error.code, "INVALID_VALUE");
+
+  const events = await fetch(`${base}/api/v1/events`);
+  assert.equal(events.status, 200);
+  assert.match(events.headers.get("content-type"), /text\/event-stream/);
+  events.body?.cancel();
+
+  const unknown = await fetch(`${base}/api/v1/commands/unknown`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(unknown.status, 400);
+  assert.equal((await unknown.json()).error.code, "UNKNOWN_COMMAND");
+
+  const malformed = await fetch(`${base}/api/v1/commands/sync-assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "not-json",
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error.code, "INVALID_JSON");
 });
