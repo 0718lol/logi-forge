@@ -6,8 +6,8 @@ Baseline: AprilNEA/OpenLogi `b32ae0872252a20353a2b8b51f1ef74b065c78f6`.
 
 | Area | Upstream behavior | Prototype status |
 | --- | --- | --- |
-| Device inventory | Receiver, direct, raw HID, camera inventories | Mocked mouse, keyboard, camera, light |
-| Agent status | Protocol version, inventory health, permissions | Live HTTP/SSE status, revision, config reload |
+| Device inventory | Receiver, direct, raw HID, camera inventories | Native inventory becomes authoritative when devices are detected; Demo fallback is explicit |
+| Agent status | Protocol version, inventory health, permissions | Live HTTP/SSE status, revision, config reload, optional write authorization |
 | Diagnostics | Native status, device nodes, permissions, apply state | Structured API and Runtime inspector |
 | Device detail tabs | Capability-gated tabs | Implemented in frontend state |
 | Mouse bindings | Button remap, gesture, long press, hold shortcut | UI state and TOML preview |

@@ -54,6 +54,10 @@ function setAgentStatus(status) {
 }
 
 async function writeDevice(device, path, value, successMessage = "Agent accepted write") {
+  if (device.hardwareWritable === false) {
+    showToast("Native device writes are not available yet", true);
+    return;
+  }
   try {
     const next = await api(`/api/v1/devices/${encodeURIComponent(device.key)}`, {
       method: "PATCH",
@@ -108,8 +112,12 @@ function render() {
   if (!tabs.includes(currentTab)) currentTab = tabs[0];
 
   $("#deviceTitle").textContent = device.name;
-  $("#deviceRoute").textContent = device.connection;
-  $("#managedToggle").checked = device.managed;
+  $("#deviceRoute").textContent = device.connection || device.route || "Unknown route";
+  $("#managedToggle").checked = Boolean(device.managed);
+  $("#managedToggle").disabled = device.hardwareWritable === false;
+  $("#managedToggle").title = device.hardwareWritable === false ? "Native adapter does not expose writes yet" : "Manage device";
+  $("#pairDevice").disabled = device.source === "native";
+  $("#pairDevice").title = device.source === "native" ? "Native pairing is not available yet" : "Pair device";
   $("#protocol").textContent = `v${snapshot.protocolVersion}`;
 
   renderDevices();
@@ -456,7 +464,7 @@ function renderInspector(device) {
 
   renderDiagnostics();
 
-  $("#configPreview").textContent = snapshot.configPreviews[device.key];
+  $("#configPreview").textContent = snapshot.configPreviews?.[device.key] || "Native configuration is managed by the agent.";
 }
 
 function renderDiagnostics() {
@@ -472,8 +480,8 @@ function renderDiagnostics() {
   target.innerHTML = `
     <dt>Native</dt><dd>${escapeHtml(diagnostics.nativeAgent?.status || "unavailable")}</dd>
     <dt>Inventory</dt><dd>${escapeHtml(diagnostics.nativeAgent?.inventoryStatus || "unavailable")} (${diagnostics.nativeAgent?.deviceCount ?? 0})</dd>
-    <dt>hidraw</dt><dd>${escapeHtml(nodeStatus(nodes.hidraw))} (${nodes.hidraw?.count ?? 0})</dd>
-    <dt>Input events</dt><dd>${escapeHtml(nodeStatus(nodes.input))} (${nodes.input?.count ?? 0})</dd>
+    <dt>hidraw</dt><dd>${escapeHtml(nodeStatus(nodes.hidraw))} (${nodes.hidraw?.accessibleCount ?? 0}/${nodes.hidraw?.count ?? 0} readable)</dd>
+    <dt>Input events</dt><dd>${escapeHtml(nodeStatus(nodes.input))} (${nodes.input?.accessibleCount ?? 0}/${nodes.input?.count ?? 0} readable)</dd>
     <dt>uinput</dt><dd>${escapeHtml(uinputStatus || "unavailable")}</dd>
     <dt>Config</dt><dd>${escapeHtml(diagnostics.nativeAgent?.configStatus || "unavailable")}</dd>
     <dt>Apply</dt><dd>${escapeHtml(diagnostics.nativeAgent?.applyStatus || "unavailable")}</dd>

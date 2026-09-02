@@ -36,6 +36,7 @@ export class AgentError extends Error {
 }
 
 export function errorStatus(code) {
+  if (code === "UNAUTHORIZED") return 401;
   if (code === "DEVICE_NOT_FOUND") return 404;
   if (code === "REVISION_CONFLICT") return 409;
   if (code === "DEVICE_OFFLINE") return 409;

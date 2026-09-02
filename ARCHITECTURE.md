@@ -19,6 +19,13 @@ The UI and overlay never open HID devices directly. All hardware writes go
 through the agent so exclusive ownership, retries, and permission failures have
 one source of truth.
 
+The hosted bridge uses the Native Agent inventory as the authoritative device
+list whenever at least one native device is detected. When no native device is
+available, it keeps the Mock inventory as an explicit Demo fallback so the UI
+remains usable without hardware. Native devices that do not yet expose a write
+adapter are marked `hardwareWritable = false`, so the UI does not present their
+mock controls as real hardware operations.
+
 ## Packages
 
 | Package | Suggested stack | Notes |
@@ -60,6 +67,10 @@ the transport without changing the device DTOs or frontend capability gates.
 
 The protocol crate accepts a `HidTransport`, so scripted reports and real Linux
 hidraw use the same code path. No OpenLogi crate is linked into this workspace.
+
+Mutating HTTP commands can be protected with `LOGI_FORGE_API_TOKEN`. The
+browser receives a same-origin `HttpOnly` session cookie, while external
+clients use `Authorization: Bearer <token>`.
 
 ## Native Agent Runtime
 

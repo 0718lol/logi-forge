@@ -12,6 +12,7 @@ const stateFile = process.env.LOGI_FORGE_STATE || join(root, ".runtime", "state.
 const agent = new MockAgent({ stateFile });
 const port = Number(process.env.PORT || 3000);
 const host = "0.0.0.0";
+const apiToken = process.env.LOGI_FORGE_API_TOKEN?.trim() || null;
 const clients = new Set();
 let mutationQueue = Promise.resolve();
 const nativeAgent = new NativeAgentBridge({ root, onSnapshot: () => sendSnapshot(currentSnapshot()) });
@@ -19,10 +20,14 @@ const nativeAgent = new NativeAgentBridge({ root, onSnapshot: () => sendSnapshot
 function currentSnapshot() {
   const base = agent.snapshot();
   const native = nativeAgent.view();
+  const nativeDevices = native.status === "online" && native.devices?.length ? native.devices : null;
   return {
     ...base,
+    devices: nativeDevices || base.devices,
+    configPreviews: nativeDevices ? {} : base.configPreviews,
     runtime: {
-      mode: native.status === "online" ? "native+demo" : "demo",
+      mode: nativeDevices ? "native" : "demo",
+      deviceSource: nativeDevices ? "native" : "demo",
       nativeAvailable: native.status === "online",
     },
     transport: native.status === "online" ? "http+sse+native-unix" : base.transport,
@@ -70,39 +75,61 @@ async function readJson(request) {
   }
 }
 
+function hasValidWriteAuthorization(request) {
+  if (!apiToken) return true;
+  const authorization = request.headers.authorization;
+  if (authorization === `Bearer ${apiToken}`) return true;
+  const cookies = request.headers.cookie?.split(";").map((cookie) => cookie.trim()) || [];
+  return cookies.includes(`lf_session=${encodeURIComponent(apiToken)}`);
+}
+
+function requireWriteAuthorization(request) {
+  if (!hasValidWriteAuthorization(request)) {
+    throw new AgentError("UNAUTHORIZED", "Write access requires a valid API token");
+  }
+}
+
 function sendSnapshot(snapshot) {
   const event = `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
   for (const client of clients) client.write(event);
 }
 
-function inspectDirectory(path, matcher) {
-  if (!existsSync(path)) return { status: "missing", count: 0, nodes: [] };
-  try {
-    const nodes = readdirSync(path).filter(matcher).sort();
-    return { status: nodes.length ? "detected" : "empty", count: nodes.length, nodes };
-  } catch (error) {
-    return { status: "denied", count: 0, nodes: [], error: error.code || "READ_FAILED" };
-  }
-}
-
-function inspectPath(path) {
+function inspectPath(path, mode = constants.R_OK | constants.W_OK) {
   if (!existsSync(path)) return { status: "missing", path };
   try {
-    accessSync(path, constants.R_OK | constants.W_OK);
+    accessSync(path, mode);
     return { status: "ready", path };
   } catch (error) {
     return { status: "denied", path, error: error.code || "ACCESS_FAILED" };
   }
 }
 
+function inspectDirectory(path, matcher, nodeMode = constants.R_OK | constants.W_OK) {
+  if (!existsSync(path)) return { status: "missing", count: 0, nodes: [] };
+  try {
+    const nodes = readdirSync(path).filter(matcher).sort();
+    const access = nodes.map((node) => inspectPath(join(path, node), nodeMode));
+    return {
+      status: nodes.length ? "detected" : "empty",
+      count: nodes.length,
+      accessibleCount: access.filter((item) => item.status === "ready").length,
+      nodes,
+      access,
+    };
+  } catch (error) {
+    return { status: "denied", count: 0, nodes: [], error: error.code || "READ_FAILED" };
+  }
+}
+
 function diagnostics() {
   const native = nativeAgent.view();
   const hidraw = inspectDirectory("/dev", (name) => name.startsWith("hidraw"));
-  const input = inspectDirectory("/dev/input", (name) => name.startsWith("event"));
+  const input = inspectDirectory("/dev/input", (name) => name.startsWith("event"), constants.R_OK);
   return {
     generatedAt: new Date().toISOString(),
     runtime: {
-      mode: native.status === "online" ? "native+demo" : "demo",
+      mode: native.devices?.length ? "native" : "demo",
+      deviceSource: native.devices?.length ? "native" : "demo",
       nativeAvailable: native.status === "online",
     },
     host: {
@@ -111,7 +138,7 @@ function diagnostics() {
       nodes: {
         hidraw,
         input,
-        uinput: ["/dev/uinput", "/dev/input/uinput"].map(inspectPath),
+        uinput: ["/dev/uinput", "/dev/input/uinput"].map((path) => inspectPath(path)),
       },
     },
     nativeAgent: {
@@ -142,6 +169,9 @@ async function serveStatic(pathname, response) {
       "Content-Type": contentTypes[extname(file)] || "application/octet-stream",
       "Content-Length": info.size,
       "Cache-Control": extname(file) === ".html" ? "no-cache" : "public, max-age=60",
+      ...(apiToken && file === join(root, "index.html")
+        ? { "Set-Cookie": `lf_session=${encodeURIComponent(apiToken)}; HttpOnly; SameSite=Strict; Path=/` }
+        : {}),
     });
     createReadStream(file).pipe(response);
   } catch {
@@ -182,6 +212,7 @@ const server = createServer(async (request, response) => {
     }
     const deviceMatch = url.pathname.match(/^\/api\/v1\/devices\/(.+)$/);
     if (request.method === "PATCH" && deviceMatch) {
+      requireWriteAuthorization(request);
       const body = await readJson(request);
       await runMutation(async () => {
         const key = decodeURIComponent(deviceMatch[1]);
@@ -206,6 +237,7 @@ const server = createServer(async (request, response) => {
     }
     const commandMatch = url.pathname.match(/^\/api\/v1\/commands\/([a-z-]+)$/);
     if (request.method === "POST" && commandMatch) {
+      requireWriteAuthorization(request);
       const body = await readJson(request);
       await runMutation(async () => agent.runCommand(commandMatch[1], body));
       json(response, 200, currentSnapshot());

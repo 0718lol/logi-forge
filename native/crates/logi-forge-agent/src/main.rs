@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use logi_forge_core::{Config, ForgeError, HidNode, KeyboardLightingConfig, Result, RgbColor};
-use logi_forge_hidpp::{DIRECT_DEVICE_INDEX, HidppClient};
+use logi_forge_hidpp::{DIRECT_DEVICE_INDEX, HidTransport, HidppClient};
 use logi_forge_linux::{HidrawTransport, discover_logitech};
 use serde_json::{Value, json};
 
@@ -183,10 +183,27 @@ fn apply_keyboard_config(config: &Config, path: &Path, index: u8) -> Result<Vec<
             config.selected_device
         ))
     })?;
-    let Some(keyboard) = &device.keyboard else {
+    let Some(_keyboard) = &device.keyboard else {
         return Ok(Vec::new());
     };
     let transport = HidrawTransport::open(path)?;
+    apply_keyboard_config_with_transport(config, index, transport)
+}
+
+fn apply_keyboard_config_with_transport<T: HidTransport>(
+    config: &Config,
+    index: u8,
+    transport: T,
+) -> Result<Vec<Value>> {
+    let device = config.devices.get(&config.selected_device).ok_or_else(|| {
+        ForgeError::ConfigError(format!(
+            "selected_device {} is missing from devices",
+            config.selected_device
+        ))
+    })?;
+    let Some(keyboard) = &device.keyboard else {
+        return Ok(Vec::new());
+    };
     let mut client = HidppClient::new(transport, index);
     let mut operations = Vec::new();
     if let Some(enabled) = keyboard.fn_lock {
@@ -254,6 +271,12 @@ fn device_json(node: &HidNode) -> Value {
         "key": key,
         "route": node.path,
         "name": node.name.as_deref().unwrap_or("Logitech HID++ device"),
+        "kind": "HidppDevice",
+        "icon": "H",
+        "connection": format!("{:?} HID++ route", node.bus),
+        "capabilities": ["hidpp"],
+        "source": "native",
+        "hardwareWritable": false,
         "vendorId": format!("{:04x}", node.vendor_id),
         "productId": format!("{:04x}", node.product_id),
         "serial": node.serial,
@@ -263,10 +286,26 @@ fn device_json(node: &HidNode) -> Value {
 }
 
 fn handle_connection(
+    stream: UnixStream,
+    state: &Arc<Mutex<AgentState>>,
+    operations: &Arc<Mutex<()>>,
+    config_path: &Path,
+) -> Result<()> {
+    handle_connection_with_apply(
+        stream,
+        state,
+        operations,
+        config_path,
+        apply_config_if_routed,
+    )
+}
+
+fn handle_connection_with_apply(
     mut stream: UnixStream,
     state: &Arc<Mutex<AgentState>>,
     operations: &Arc<Mutex<()>>,
     config_path: &Path,
+    apply: fn(Option<&Config>) -> Value,
 ) -> Result<()> {
     let mut request = String::new();
     BufReader::new(stream.try_clone().map_err(io_error("clone agent stream"))?)
@@ -281,7 +320,7 @@ fn handle_connection(
     let response = match method {
         "health" => json!({ "status": "ok", "protocolVersion": PROTOCOL_VERSION }),
         "snapshot" => snapshot_json(&lock_state(state)),
-        "write" => write_setting(&request, state, operations, config_path),
+        "write" => write_setting_with_apply(&request, state, operations, config_path, apply),
         _ => json!({
             "error": { "code": "UNKNOWN_METHOD", "message": format!("Unknown method: {method}") }
         }),
@@ -295,11 +334,12 @@ fn handle_connection(
     })
 }
 
-fn write_setting(
+fn write_setting_with_apply(
     request: &Value,
     state: &Arc<Mutex<AgentState>>,
     operations: &Arc<Mutex<()>>,
     config_path: &Path,
+    apply: fn(Option<&Config>) -> Value,
 ) -> Value {
     let _operation = operations
         .lock()
@@ -331,7 +371,7 @@ fn write_setting(
     if let Err(error) = persist_config(config_path, &config) {
         return request_error("CONFIG_WRITE_FAILED", &error.to_string());
     }
-    let apply = apply_config_if_routed(Some(&config));
+    let apply = apply(Some(&config));
     let mut current = lock_state(state);
     current.revision += 1;
     current.config = json!({
@@ -466,7 +506,96 @@ fn now_ms() -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use logi_forge_hidpp::LONG_REPORT_ID;
+
     use super::*;
+
+    #[derive(Default)]
+    struct FakeKeyboardTransport {
+        fn_lock: bool,
+        unsolicited: VecDeque<Vec<u8>>,
+        writes: Vec<Vec<u8>>,
+    }
+
+    impl HidTransport for FakeKeyboardTransport {
+        fn transact(&mut self, request: &[u8], _timeout: Duration) -> Result<Vec<u8>> {
+            if request[2] == 0 {
+                let feature = u16::from_be_bytes([request[4], request[5]]);
+                let index = match feature {
+                    0x40a3 => 5,
+                    0x8070 => 6,
+                    _ => 0,
+                };
+                return Ok(short_response(request, [index, 0, 0]));
+            }
+
+            let feature = request[2];
+            let function = request[3] >> 4;
+            match (feature, function) {
+                (5, 1) => {
+                    self.fn_lock = request[5] != 0;
+                    Ok(short_response(request, [0, 0, 0]))
+                }
+                (5, 0) => Ok(short_response(request, [0, u8::from(self.fn_lock), 1])),
+                (6, 0) => Ok(short_response(request, [2, 0, 0])),
+                (6, 3) if request[0] == LONG_REPORT_ID => Ok(request.to_vec()),
+                _ => Err(ForgeError::InvalidResponse(format!(
+                    "fake keyboard received unexpected request {request:02x?}"
+                ))),
+            }
+        }
+
+        fn write_report(&mut self, report: &[u8]) -> Result<()> {
+            self.writes.push(report.to_vec());
+            Ok(())
+        }
+
+        fn read_report(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
+            self.unsolicited.pop_front().ok_or(ForgeError::Timeout)
+        }
+    }
+
+    fn short_response(request: &[u8], payload: [u8; 3]) -> Vec<u8> {
+        vec![
+            request[0], request[1], request[2], request[3], payload[0], payload[1], payload[2],
+        ]
+    }
+
+    fn fake_apply(config: Option<&Config>) -> Value {
+        let Some(config) = config else {
+            return json!({ "status": "skipped" });
+        };
+        match apply_keyboard_config_with_transport(
+            config,
+            DIRECT_DEVICE_INDEX,
+            FakeKeyboardTransport::default(),
+        ) {
+            Ok(operations) => {
+                json!({ "status": "applied", "backend": "fake", "operations": operations })
+            }
+            Err(error) => json!({ "status": "error", "error": error.to_string() }),
+        }
+    }
+
+    fn agent_request(
+        request: &Value,
+        state: &Arc<Mutex<AgentState>>,
+        operations: &Arc<Mutex<()>>,
+        config_path: &Path,
+    ) -> Value {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(format!("{request}\n").as_bytes()).unwrap();
+        handle_connection_with_apply(server, state, operations, config_path, fake_apply).unwrap();
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response).unwrap();
+        serde_json::from_str(response.trim()).unwrap()
+    }
 
     #[test]
     fn scales_rgb_without_overflow() {
@@ -521,5 +650,70 @@ mod tests {
         persist_config(&target, &config).unwrap();
         assert_eq!(Config::load_from_path(&target).unwrap(), config);
         fs::remove_file(target).unwrap();
+    }
+
+    #[test]
+    fn fake_hardware_applies_keyboard_settings_through_hidpp() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/logi-forge.toml");
+        let config = Config::load_from_path(source).unwrap();
+        let operations = apply_keyboard_config_with_transport(
+            &config,
+            DIRECT_DEVICE_INDEX,
+            FakeKeyboardTransport::default(),
+        )
+        .unwrap();
+        assert_eq!(operations.len(), 2);
+        assert_eq!(operations[0]["operation"], "fn-lock");
+        assert_eq!(operations[0]["enabled"], false);
+        assert_eq!(operations[1]["operation"], "lighting");
+        assert_eq!(operations[1]["backend"], "Effects");
+        assert_eq!(operations[1]["zonesWritten"], 2);
+    }
+
+    #[test]
+    fn unix_api_write_persists_and_rejects_stale_revision_with_fake_hardware() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/logi-forge.toml");
+        let config_path = env::temp_dir().join(format!("logi-forge-api-{}.toml", now_ms()));
+        fs::copy(source, &config_path).unwrap();
+        let state = Arc::new(Mutex::new(AgentState::default()));
+        let operations = Arc::new(Mutex::new(()));
+
+        let response = agent_request(
+            &json!({ "method": "snapshot" }),
+            &state,
+            &operations,
+            &config_path,
+        );
+        assert_eq!(response["revision"], 0);
+
+        let response = agent_request(
+            &json!({ "method": "write", "path": "fnLock", "value": true, "revision": 0 }),
+            &state,
+            &operations,
+            &config_path,
+        );
+        assert_eq!(response["status"], "ok");
+        assert_eq!(response["apply"]["status"], "applied");
+        assert_eq!(response["apply"]["backend"], "fake");
+        assert_eq!(response["snapshot"]["revision"], 1);
+        assert!(
+            fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("fn_lock = true")
+        );
+
+        let stale_response = agent_request(
+            &json!({ "method": "write", "path": "fnLock", "value": false, "revision": 0 }),
+            &state,
+            &operations,
+            &config_path,
+        );
+        assert_eq!(stale_response["error"]["code"], "REVISION_CONFLICT");
+        assert!(
+            fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("fn_lock = true")
+        );
+        fs::remove_file(config_path).unwrap();
     }
 }

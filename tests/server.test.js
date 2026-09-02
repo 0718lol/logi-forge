@@ -53,6 +53,7 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
       PORT: String(port),
       LOGI_FORGE_STATE: join(directory, "state.json"),
       LOGI_FORGE_CONFIG: join(directory, "native-config.toml"),
+      LOGI_FORGE_API_TOKEN: "test-token",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -67,22 +68,40 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
   const page = await fetch(`${base}/`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Logi Forge/);
+  assert.match(page.headers.get("set-cookie"), /lf_session=test-token/);
 
   const before = await waitForNative(base);
   assert.ok(before.nativeAgent);
   assert.equal(before.nativeAgent.protocolVersion, 1);
-  assert.equal(before.runtime.mode, "native+demo");
+  assert.equal(before.runtime.mode, "demo");
   assert.equal((await (await fetch(`${base}/health`)).json()).ready, true);
 
   const diagnostics = await (await fetch(`${base}/api/v1/diagnostics`)).json();
-  assert.equal(diagnostics.runtime.mode, "native+demo");
+  assert.equal(diagnostics.runtime.mode, "demo");
   assert.equal(diagnostics.nativeAgent.status, "online");
   assert.equal(typeof diagnostics.host.platform, "string");
   assert.ok(diagnostics.host.nodes.hidraw.status);
   assert.ok(Array.isArray(diagnostics.host.nodes.uinput));
+
+  const unauthorized = await fetch(`${base}/api/v1/commands/sync-assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal((await unauthorized.json()).error.code, "UNAUTHORIZED");
+
+  const cookieAuthorized = await fetch(`${base}/api/v1/commands/sync-assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: "lf_session=test-token" },
+    body: "{}",
+  });
+  assert.equal(cookieAuthorized.status, 200);
+
+  const auth = { Authorization: "Bearer test-token" };
   const write = await fetch(`${base}/api/v1/devices/${encodeURIComponent("unit:6be9d300")}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth },
     body: JSON.stringify({ path: "dpi", value: 3200, revision: before.revision }),
   });
   assert.equal(write.status, 200);
@@ -91,7 +110,7 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
 
   const keyboardWrite = await fetch(`${base}/api/v1/devices/${encodeURIComponent("unit:keyboard77")}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth },
     body: JSON.stringify({ path: "fnLock", value: false, revision: after.revision }),
   });
   assert.equal(keyboardWrite.status, 200);
@@ -102,7 +121,7 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
 
   const invalid = await fetch(`${base}/api/v1/devices/${encodeURIComponent("unit:6be9d300")}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth },
     body: JSON.stringify({ path: "dpi", value: 99999, revision: keyboardAfter.revision }),
   });
   assert.equal(invalid.status, 400);
@@ -115,7 +134,7 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
 
   const unknown = await fetch(`${base}/api/v1/commands/unknown`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth },
     body: "{}",
   });
   assert.equal(unknown.status, 400);
@@ -123,7 +142,7 @@ test("hosted server exposes UI, health, snapshots, and validated writes", async 
 
   const malformed = await fetch(`${base}/api/v1/commands/sync-assets`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth },
     body: "not-json",
   });
   assert.equal(malformed.status, 400);

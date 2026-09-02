@@ -83,6 +83,10 @@ The hosted build exposes `GET /api/v1/diagnostics` for hardware-free checks of
 the Native Agent, Linux `hidraw`/`input`/`uinput` nodes, and configuration apply
 status. The UI exposes the same data in the Runtime inspector.
 
+Set `LOGI_FORGE_API_TOKEN` to require a Bearer token for all mutating API
+requests. The browser UI receives a same-origin, `HttpOnly` session cookie;
+external CLI clients should send `Authorization: Bearer <token>`.
+
 ## Implementation Direction
 
 Use a split architecture:
